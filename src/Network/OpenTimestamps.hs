@@ -121,12 +121,14 @@ putVarInt !n = do
   unless (n <= 0x7f || next == 0) (putVarInt next)
 
 
+
 putAttestation :: Putter Attestation
 putAttestation att =
   case att of
     BitcoinHeaderAttestation i ->
       do putByteString "\x05\x88\x96\x0d\x73\xd7\x19\x01"
          putVarInt i
+
 
 putTimestamp :: Putter Timestamp
 putTimestamp Timestamp{..} = do
@@ -146,6 +148,7 @@ append, prepend :: ByteString -> Op
 append  = BinOp OpAppend
 prepend = BinOp OpPrepend
 
+
 serializeProof :: CryptoOp -> ByteString -> Putter Timestamp
 serializeProof cop hash timestamp = do
   putHeader
@@ -153,8 +156,10 @@ serializeProof cop hash timestamp = do
   putByteString hash
   putTimestamp timestamp
 
+
 testAttestation :: Attestation
 testAttestation = BitcoinHeaderAttestation 555555
+
 
 testTimestamp :: Timestamp
 testTimestamp =
