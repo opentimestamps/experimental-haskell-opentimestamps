@@ -14,7 +14,7 @@ import "cryptonite" Crypto.Hash.Algorithms
 import "cryptonite" Crypto.Hash (Digest, hash)
 
 import Data.Bits
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Data.Word (Word8)
 import Data.ByteArray (convert)
 import Data.Serialize
@@ -114,11 +114,23 @@ beforeAll v xs =
 putVarInt :: Putter Int
 putVarInt 0  = putWord8 0x0
 putVarInt !n = do
-  let n2 = n .&. 0x7f
+  let n2 = n .&. 0x7f :: Int
       n3 = if n > 0x7f then n2 .|. 0x80 else n2
   putWord8 (fromIntegral n3)
   let next = n `shiftR` 7
   unless (n <= 0x7f || next == 0) (putVarInt next)
+
+
+getVarInt :: Get Int
+getVarInt = go 0 0
+  where
+    go :: Int -> Int -> Get Int
+    go !shft !val = do
+      b <- getWord8
+      let next = val .|. (fromIntegral b .&. 0x7F) `shiftL` shft
+      if (b .&. 0x80) == 0x80
+         then go (shft + 7) next
+         else return next
 
 
 
@@ -127,7 +139,9 @@ putAttestation att =
   case att of
     BitcoinHeaderAttestation i ->
       do putByteString "\x05\x88\x96\x0d\x73\xd7\x19\x01"
-         putVarInt i
+         let bytes = runPut (putVarInt i)
+         putVarInt (BS.length bytes)
+         putByteString bytes
 
 
 putTimestamp :: Putter Timestamp
@@ -148,6 +162,13 @@ append, prepend :: ByteString -> Op
 append  = BinOp OpAppend
 prepend = BinOp OpPrepend
 
+testSerialize :: IO ()
+testSerialize =
+  let
+      hash = BS.replicate 32 0xFF
+      serialize = serializeProof OpSHA256 hash testTimestamp
+  in
+    BS.writeFile "/tmp/hello.ots" (runPut serialize)
 
 serializeProof :: CryptoOp -> ByteString -> Putter Timestamp
 serializeProof cop hash timestamp = do
@@ -167,5 +188,3 @@ testTimestamp =
       tsAttestations = testAttestation :| []
     , tsOps = [prepend "hello", append "world"]
     }
-
-
