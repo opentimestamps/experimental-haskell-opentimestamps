@@ -132,16 +132,13 @@ getVarInt = go 0 0
          then go (shft + 7) next
          else return next
 
-
-
 putAttestation :: Putter Attestation
 putAttestation att =
   case att of
     BitcoinHeaderAttestation i ->
       do putByteString "\x05\x88\x96\x0d\x73\xd7\x19\x01"
          let bytes = runPut (putVarInt i)
-         putVarInt (BS.length bytes)
-         putByteString bytes
+         putVarBytes bytes
 
 
 putTimestamp :: Putter Timestamp
