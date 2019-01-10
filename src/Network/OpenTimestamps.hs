@@ -132,6 +132,7 @@ getVarInt = go 0 0
          then go (shft + 7) next
          else return next
 
+
 putAttestation :: Putter Attestation
 putAttestation att =
   case att of
@@ -158,6 +159,12 @@ putTimestamp Timestamp{..} = do
 append, prepend :: ByteString -> Op
 append  = BinOp OpAppend
 prepend = BinOp OpPrepend
+
+sha256 :: Op
+sha256 = CryptoOp OpSHA256
+
+-- catSHA256 left right =
+--   CryptoOp OpSHA256 (BinOp Op)
 
 testSerialize :: IO ()
 testSerialize =
