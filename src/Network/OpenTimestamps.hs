@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -11,7 +12,7 @@ module Network.OpenTimestamps
     ) where
 
 import "cryptonite" Crypto.Hash.Algorithms
-import "cryptonite" Crypto.Hash (Digest, hash)
+import "cryptonite" Crypto.Hash (Digest)
 
 import Data.Bits
 import Control.Monad (unless, when)
@@ -22,10 +23,16 @@ import Data.List (sort)
 import Data.Semigroup (sconcat)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.ByteString (ByteString)
+import Data.HashMap.Lazy (HashMap)
+import Data.HashSet (HashSet)
+import Data.Hashable (Hashable(..))
 
 import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.HashMap.Strict as Map
+import qualified Data.HashSet as Set
+import qualified "cryptonite" Crypto.Hash as Crypto
 
 
 data BinOp = OpAppend
@@ -48,12 +55,24 @@ data Op = BinOp BinOp ByteString
         deriving (Show, Eq, Ord)
 
 data Attestation = BitcoinHeaderAttestation Int
-                 deriving (Eq, Ord)
+                 | CalendarAttestation ByteString
+                 deriving (Show, Eq, Ord)
+
+instance Hashable Attestation where
+  hashWithSalt salt a =
+    case a of
+      BitcoinHeaderAttestation i -> hashWithSalt salt (0::Word8, i)
+      CalendarAttestation      s -> hashWithSalt salt (1::Word8, s)
+
+instance Hashable Op where
+  hashWithSalt salt v = hashWithSalt salt (opTag v)
 
 data Timestamp = Timestamp {
-      tsAttestations :: NonEmpty Attestation
-    , tsOps          :: [Op]
+      tsMsg          :: ByteString
+    , tsAttestations :: HashSet Attestation
+    , tsOps          :: HashMap Op Timestamp
     }
+    deriving (Show, Eq, Ord)
 
 eval :: Op -> ByteString -> ByteString
 eval op input =
@@ -62,10 +81,10 @@ eval op input =
     BinOp OpPrepend a     -> a     `BS.append` input
     UnaryOp OpReverse     -> BS.reverse input
     UnaryOp OpHexlify     -> B16.encode input
-    CryptoOp OpSHA1       -> convert (hash input :: Digest SHA1)
-    CryptoOp OpSHA256     -> convert (hash input :: Digest SHA256)
-    CryptoOp OpRIPEMD160  -> convert (hash input :: Digest RIPEMD160)
-    CryptoOp OpKECCACK256 -> convert (hash input :: Digest Keccak_256)
+    CryptoOp OpSHA1       -> convert (Crypto.hash input :: Digest SHA1)
+    CryptoOp OpSHA256     -> convert (Crypto.hash input :: Digest SHA256)
+    CryptoOp OpRIPEMD160  -> convert (Crypto.hash input :: Digest RIPEMD160)
+    CryptoOp OpKECCACK256 -> convert (Crypto.hash input :: Digest Keccak_256)
 
 version :: Int
 version = 0x1
@@ -101,8 +120,6 @@ putOp op = do
   case op of
     BinOp _ val -> putVarBytes val
     _           -> return ()
-
-
 
 beforeAll :: a -> [a] -> [a]
 beforeAll v xs =
@@ -141,16 +158,20 @@ putAttestation att =
          let bytes = runPut (putVarInt i)
          putVarBytes bytes
 
+putOpTS :: Putter (Op, Timestamp)
+putOpTS (op, ts) = do
+  putOp op
+  putTimestamp ts
 
 putTimestamp :: Putter Timestamp
 putTimestamp Timestamp{..} = do
-  let sortedAs  = NE.sort tsAttestations
-      sortedOps =    sort tsOps
-      putAs     = NE.map  putAttestation sortedAs
-      putOps    =    map  putOp          sortedOps
-      putAs'    = amark `NE.cons` NE.intersperse amark putAs
+  let sortedAs  = sort (Set.toList tsAttestations)
+      sortedOps = sort (Map.toList tsOps)
+      putAs     = map  putAttestation sortedAs
+      putOps    = map  putOpTS        sortedOps
+      putAs'    = beforeAll amark putAs
       putOps'   = beforeAll sep putOps
-  sconcat putAs'
+  mconcat putAs'
   mconcat putOps'
   where
     sep   = putWord8 0xff
@@ -163,14 +184,47 @@ prepend = BinOp OpPrepend
 sha256 :: Op
 sha256 = CryptoOp OpSHA256
 
--- catSHA256 left right =
---   CryptoOp OpSHA256 (BinOp Op)
+mkTS :: ByteString -> Timestamp
+mkTS msg = Timestamp msg Set.empty Map.empty
+
+mkTSOp :: Timestamp -> Op -> Timestamp
+mkTSOp ts op = mkTS (eval op (tsMsg ts))
+
+addTS ts op t = ts { tsOps = Map.insert op t (tsOps ts) }
+
+addOp :: Timestamp -> Op -> (Timestamp, Timestamp)
+addOp ts op = (, tsOp) $
+    ts { tsOps = Map.insert op tsOp (tsOps ts) }
+    where
+      tsOp = mkTSOp ts op
+
+addOp' :: Timestamp -> Op -> Timestamp
+addOp' ts = fst . addOp ts
+
+catUnary :: Op -> Timestamp -> Timestamp -> Timestamp
+catUnary unary left right =
+  let
+      (_, rs) = addOp right (prepend (tsMsg left))
+      (_, ls) = addOp left app
+      l       = addTS left app r'
+      (r', _) = addOp rs unary
+  in
+    if ls /= rs then error "stamps should be equal"
+                else l
+  where
+    app = append (tsMsg right)
+
+
+catSHA256 :: Timestamp -> Timestamp -> Timestamp
+catSHA256 = catUnary sha256
+
 
 testSerialize :: IO ()
 testSerialize =
   let
-      hash = BS.replicate 32 0xFF
-      serialize = serializeProof OpSHA256 hash testTimestamp
+      hash      = BS.replicate 32 0xFE
+      ts        = catSHA256 testTimestamp testTimestamp
+      serialize = serializeProof OpSHA256 hash ts
   in
     BS.writeFile "/tmp/hello.ots" (runPut serialize)
 
@@ -186,9 +240,13 @@ testAttestation :: Attestation
 testAttestation = BitcoinHeaderAttestation 555555
 
 
+
 testTimestamp :: Timestamp
-testTimestamp =
-    Timestamp {
-      tsAttestations = testAttestation :| []
-    , tsOps = [prepend "hello", append "world"]
-    }
+testTimestamp = ts
+    where
+      ao op t = fst (addOp t op)
+      ts = Timestamp {
+             tsMsg = "hello"
+           , tsAttestations = Set.singleton testAttestation
+           , tsOps = Map.empty
+           }
