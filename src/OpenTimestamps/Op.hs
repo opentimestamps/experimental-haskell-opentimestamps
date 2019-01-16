@@ -9,6 +9,8 @@ module OpenTimestamps.Op
     , eval
     , opTag
     , append, prepend, sha256
+    , parseTag
+    , parseCryptoTag
     ) where
 
 import Data.Hashable
@@ -73,18 +75,25 @@ opTag (CryptoOp OpRIPEMD160)  = 0x03
 opTag (CryptoOp OpSHA256)     = 0x08
 opTag (CryptoOp OpKECCACK256) = 0x67
 
-parseTag :: Word8 -> ByteString -> Maybe Op
-parseTag w8 bs =
+parseCryptoTag :: Word8 -> Maybe CryptoOp
+parseCryptoTag w8 =
   case w8 of
-    0xF0 -> Just $ BinOp OpAppend bs
-    0xF1 -> Just $ BinOp OpPrepend bs
-    0xF2 -> Just $ UnaryOp OpReverse
-    0xF3 -> Just $ UnaryOp OpHexlify
-    0x02 -> Just $ CryptoOp OpSHA1
-    0x03 -> Just $ CryptoOp OpRIPEMD160
-    0x08 -> Just $ CryptoOp OpSHA256
-    0x67 -> Just $ CryptoOp OpKECCACK256
+    0x02 -> Just OpSHA1
+    0x03 -> Just OpRIPEMD160
+    0x08 -> Just OpSHA256
+    0x67 -> Just OpKECCACK256
     _    -> Nothing
+
+
+parseTag :: Word8 -> Maybe (ByteString -> Op)
+parseTag w8 =
+  case w8 of
+    0xF0   -> Just $ BinOp OpAppend
+    0xF1   -> Just $ BinOp OpPrepend
+    0xF2   -> Just $ const $ UnaryOp OpReverse
+    0xF3   -> Just $ const $ UnaryOp OpHexlify
+    crypto -> fmap (const . CryptoOp) (parseCryptoTag crypto)
+
 
 append, prepend :: ByteString -> Op
 append  = BinOp OpAppend

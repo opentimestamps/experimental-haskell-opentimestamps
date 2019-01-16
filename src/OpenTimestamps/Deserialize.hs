@@ -10,6 +10,8 @@ import Data.Bits
 import OpenTimestamps.Op
 import OpenTimestamps.Timestamp
 
+import qualified Data.ByteString as BS
+
 getVarInt :: Get Int
 getVarInt = go 0 0
   where
@@ -30,20 +32,47 @@ cryptoHashLen OpSHA1       = 20
 
 getHeader :: Get Int
 getHeader = do
-  mmagic <- getByteString (length magic)
+  mmagic <- getByteString (BS.length magic)
   guard (mmagic == magic)
-  ver <- getWord8
+  ver <- fmap fromIntegral getWord8
   guard (version == ver)
+  return ver
+
+getVarBytes :: Get ByteString
+getVarBytes = do
+  len <- getVarInt
+  getByteString len
 
 getOp :: Get Op
 getOp = do
   tag <- getWord8
-  case tag of
-    BinOp _ val -> putVarBytes val
+  case parseTag tag of
+    Nothing -> fail ("unknown tag " ++ show tag)
+    Just op -> do bytes <- getVarBytes
+                  return (op bytes)
+
+getCryptoOp :: Get CryptoOp
+getCryptoOp = do
+  tag <- getWord8
+  case parseCryptoTag tag of
+    Nothing   -> fail ("unknown crypto tag " ++ show tag)
+    Just ctag -> return ctag
 
 
 getDetachedFileHash :: Get (ByteString, CryptoOp)
 getDetachedFileHash = do
-  getHeader
-  cryptoOp <- getOp
-  getByteString (cryptoHashLen cryptoOp)
+  _ <- getHeader
+  cryptoOp <- getCryptoOp
+  dat <- getByteString (cryptoHashLen cryptoOp)
+  return (dat, cryptoOp)
+
+
+testDeserialize :: FilePath -> IO (ByteString, CryptoOp)
+testDeserialize fp = do
+  proof <- BS.readFile fp
+  case runGet getDetachedFileHash proof of
+    Left err  -> fail err
+    Right res -> return res
+
+
+

@@ -83,14 +83,14 @@ putOp op = do
     _           -> return ()
 
 
-testSerialize :: IO ()
-testSerialize =
+testSerialize :: FilePath -> IO ()
+testSerialize filename =
   let
       hash      = BS.replicate 32 0xFE
       ts        = catSHA256 testTimestamp testTimestamp
       serialize = serializeProof OpSHA256 hash ts
   in
-    BS.writeFile "/tmp/hello.ots" (runPut serialize)
+    BS.writeFile filename (runPut serialize)
 
 
 serializeProof :: CryptoOp -> ByteString -> Putter Timestamp

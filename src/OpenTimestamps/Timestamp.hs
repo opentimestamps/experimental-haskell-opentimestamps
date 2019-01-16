@@ -4,7 +4,6 @@
 
 module OpenTimestamps.Timestamp where
 
-
 import Data.ByteString (ByteString)
 import Data.HashSet (HashSet)
 import Data.HashMap.Lazy (HashMap)
@@ -38,6 +37,7 @@ mkTSOp :: Timestamp -> Op -> Timestamp
 mkTSOp ts op = mkTS (eval op (tsMsg ts))
 
 
+addTS :: Timestamp -> Op -> Timestamp -> Timestamp
 addTS ts op t = ts { tsOps = Map.insert op t (tsOps ts) }
 
 
