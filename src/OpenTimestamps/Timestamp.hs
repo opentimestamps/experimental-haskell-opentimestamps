@@ -23,6 +23,12 @@ data Timestamp = Timestamp {
     }
     deriving (Show, Eq, Ord)
 
+version :: Int
+version = 0x1
+
+magic :: ByteString
+magic = "\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
+
 
 mkTS :: ByteString -> Timestamp
 mkTS msg = Timestamp msg Set.empty Map.empty

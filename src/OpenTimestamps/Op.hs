@@ -73,6 +73,18 @@ opTag (CryptoOp OpRIPEMD160)  = 0x03
 opTag (CryptoOp OpSHA256)     = 0x08
 opTag (CryptoOp OpKECCACK256) = 0x67
 
+parseTag :: Word8 -> ByteString -> Maybe Op
+parseTag w8 bs =
+  case w8 of
+    0xF0 -> Just $ BinOp OpAppend bs
+    0xF1 -> Just $ BinOp OpPrepend bs
+    0xF2 -> Just $ UnaryOp OpReverse
+    0xF3 -> Just $ UnaryOp OpHexlify
+    0x02 -> Just $ CryptoOp OpSHA1
+    0x03 -> Just $ CryptoOp OpRIPEMD160
+    0x08 -> Just $ CryptoOp OpSHA256
+    0x67 -> Just $ CryptoOp OpKECCACK256
+    _    -> Nothing
 
 append, prepend :: ByteString -> Op
 append  = BinOp OpAppend

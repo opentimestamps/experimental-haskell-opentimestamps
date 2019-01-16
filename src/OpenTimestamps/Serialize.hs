@@ -20,12 +20,6 @@ import qualified Data.HashSet as Set
 import qualified Data.ByteString as BS
 
 
-version :: Int
-version = 0x1
-
-magic :: ByteString
-magic = "\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94"
-
 
 putHeader :: Put
 putHeader = do
